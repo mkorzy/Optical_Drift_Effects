@@ -4,6 +4,7 @@ using StaticArrays
 using LinearAlgebra
 using Plots
 using Contour  
+using Random
 
 # -----------------------------
 # USER: construct your lens here
@@ -334,12 +335,17 @@ p_overlay = plot(p_lens, p_src; layout=(1,2), size=(1200, 600))
 
 # ---------------------------------------------
 # Overlay figure - Extended sources
+# USES BOUNDARY TRACKING TO PLOT IMAGE CURVES - first approach, not robust to caustic crossings
+#
+# Note: the image tracking here is very naive and will break if the source crosses a caustic.
+# For a more robust implementation, you would need to handle changes in image count and track branches more carefully.
 # ---------------------------------------------
 
 # Source circle parameters
-β0 = SVector{2,Float64}(-1.0, 0.3)   # center in source plane (edit)
+β0 = SVector{2,Float64}(-0.0, 0.0)   # center in source plane (edit)
 Rs = 0.15                             # source radius (edit)
 Nϕ = 200                              # boundary sampling
+N = 4000                              # interior sampling (not used in this approach)
 
 ϕs = range(0, 2π; length=Nϕ+1)[1:end-1]
 source_boundary = [SVector{2,Float64}(β0[1] + Rs*cos(ϕ), β0[2] + Rs*sin(ϕ)) for ϕ in ϕs]
@@ -443,3 +449,89 @@ display(p_overlay_ext)
 
 savefig(p_overlay_ext, "generic_cusp_extended_overlay.png")
 println("Saved: generic_cusp_extended_overlay.png")
+
+
+# ---------------------------------------------
+# Overlay figure - Extended sources
+# SOURCE PLANE SAMPLING APPROACH (more robust to caustic crossings, but no image curve plotting)
+# Note: this approach just plots discrete image points for a grid of source positions, so it won't give smooth curves. 
+# You would need a more sophisticated sampling strategy to get nice curves.
+# ---------------------------------------------
+
+"""
+    sample_disk(β0, R; N=5000, rng=Random.default_rng())
+
+Uniformly sample N points inside a disk of radius R centered at β0.
+Returns Vector{SVector{2,Float64}}.
+"""
+function sample_disk(β0::SVector{2,Float64}, R::Float64; N::Int=5000, rng=Random.default_rng())
+    pts = Vector{SVector{2,Float64}}(undef, N)
+    for n in 1:N
+        # Uniform in area: radius = R*sqrt(u)
+        u = rand(rng)
+        r = R * sqrt(u)
+        ϕ = 2π * rand(rng)
+        pts[n] = SVector{2,Float64}(β0[1] + r*cos(ϕ), β0[2] + r*sin(ϕ))
+    end
+    return pts
+end
+
+"""
+    lensed_point_cloud(lens, βpts, image_positions)
+
+For each β in βpts, compute image positions θ via `image_positions(lens, β)`.
+Returns:
+- θpts::Vector{SVector{2,Float64}} (all image points concatenated)
+"""
+function lensed_point_cloud(lens, βpts::Vector{SVector{2,Float64}}, image_positions_fn)
+    θpts = SVector{2,Float64}[]
+    for β in βpts
+        imgs = image_positions_fn(lens, β)
+        append!(θpts, imgs)
+    end
+    return θpts
+end
+
+
+βpts = sample_disk(β0, Rs; N=N)
+θpts = lensed_point_cloud(lens, βpts, image_positions)
+
+# ---- Lens plane plot ----
+p_lens = plot(; aspect_ratio=:equal,
+    title="Lens plane: critical curve + lensed image cloud",
+    xlabel="θx", ylabel="θy",
+    legend=false
+)
+
+for poly in critical_polylines
+    plot!(p_lens, first.(poly), last.(poly), lw=2)
+end
+
+# scatter lensed image points
+scatter!(p_lens, first.(θpts), last.(θpts);
+    markersize=1.5, markerstrokewidth=0, alpha=0.35
+)
+
+# ---- Source plane plot ----
+p_src = plot(; aspect_ratio=:equal,
+    title="Source plane: caustic + sampled source disk",
+    xlabel="βx", ylabel="βy",
+    legend=false
+)
+
+for poly in caustic_polylines
+    plot!(p_src, first.(poly), last.(poly), lw=2)
+end
+
+scatter!(p_src, first.(βpts), last.(βpts);
+    markersize=1.5, markerstrokewidth=0, alpha=0.35
+)
+scatter!(p_src, [β0[1]], [β0[2]];
+    markershape=:x, markersize=9
+)
+
+p_overlay = plot(p_lens, p_src; layout=(1,2), size=(1200, 600))
+display(p_overlay)
+
+savefig(p_overlay, "generic_cusp_extended_cloud.png")
+println("Saved: generic_cusp_extended_cloud.png")
