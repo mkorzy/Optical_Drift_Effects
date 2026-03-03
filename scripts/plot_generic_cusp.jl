@@ -304,9 +304,9 @@ scatter!(p_src_sb, first.(βpts), last.(βpts);
     markersize=1.5, markerstrokewidth=0, alpha=0.25
 )
 
-p_overlay_sb = plot(p_sb, p_src_sb; layout=(1,2), size=(1200, 600))
-savefig(p_overlay_sb, "generic_cusp_surface_brightness.pdf")
-println("Saved: generic_cusp_surface_brightness.pdf")
+# p_overlay_sb = plot(p_sb, p_src_sb; layout=(1,2), size=(1200, 600))
+# savefig(p_overlay_sb, "generic_cusp_surface_brightness.pdf")
+# println("Saved: generic_cusp_surface_brightness.pdf")
 
 # ---------------------------------------------
 # Including non-uniform source brightness (e.g. Sersic profile)
@@ -415,9 +415,9 @@ scatter!(p_src, first.(βpts), last.(βpts);
     alpha=as
 )
 
-p_overlay = plot(p_lens, p_src; layout=(1,2), size=(1200, 600))
-savefig(p_overlay, "generic_cusp_sersic_weighted.pdf")
-println("Saved: generic_cusp_sersic_weighted.pdf")
+# p_overlay = plot(p_lens, p_src; layout=(1,2), size=(1200, 600))
+# savefig(p_overlay, "generic_cusp_sersic_weighted.pdf")
+# println("Saved: generic_cusp_sersic_weighted.pdf")
 
 
 # -------------------------------------------------------------
@@ -513,14 +513,16 @@ function animate_crossing(lens;
     println("Saved: $outname")
 end
 
-# animate_crossing(lens; outname="cross_x.gif",
-#     βstart = SVector{2,Float64}(-1.6, 0.2),
-#     v      = SVector{2,Float64}(1.0, 0.0))
+animate_crossing(lens; outname="cross_horizontal.gif",
+    βstart = SVector{2,Float64}(-1.6, 0.0),
+    v      = SVector{2,Float64}(1.0, 0.0))
 
 # animate_crossing(lens; outname="cross_diag.gif",
 #     βstart = SVector{2,Float64}(-1.6, -0.4),
 #     v      = SVector{2,Float64}(1.0, 0.7))
 
-animate_crossing(lens; outname="cross_vertical.gif",
-    βstart = SVector{2,Float64}(-1.0, -1.0),
-    v      = SVector{2,Float64}(0.0, 1.0))
+# animate_crossing(lens; outname="cross_vertical.gif",
+#     βstart = SVector{2,Float64}(-1.0, -1.0),
+#     v      = SVector{2,Float64}(0.0, 1.0))
+
+

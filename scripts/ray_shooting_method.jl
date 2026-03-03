@@ -1,0 +1,286 @@
+# scripts/ray_shooting_method.jl
+using Optical_Drift_Effects
+using StaticArrays
+using LinearAlgebra
+using Plots
+using Contour  
+using Random
+
+# -----------------------------
+# Lens set-up
+# -----------------------------
+
+lens = generic_cusp(1, 1)   # <-- change this line to your lens object / parameters
+
+# ------------------------------
+# Source set-up
+# ------------------------------
+
+# Source circle parameters
+β0 = SVector{2,Float64}(-1.0, 0.4)   # center in source plane 
+Rs = 0.005                             # source radius 
+N = 60000                              # interior sampling number of points (if used)
+
+src = SersicSource(
+    I0=1.0,
+    Re=Rs,
+    n=2.0, # Sersic index (n=1 exponential, n=4 de Vaucouleurs)
+    q=1.0, #axis ratio (1.0 = circular)
+    ϕ=0.0, # position angle (radians, for elliptical sources)
+    β0=β0,
+    normalize=:none 
+)
+
+# -----------------------------
+# Grid settings
+# -----------------------------
+Nx, Ny = 300, 300
+xmin, xmax = -4.0, 0.5
+ymin, ymax = -2.0, 2.0
+
+xs = range(xmin, xmax; length=Nx)
+ys = range(ymin, ymax; length=Ny)
+
+# Storage
+Ψ   = zeros(Float64, Ny, Nx)   # potential
+ax  = zeros(Float64, Ny, Nx)   # deflection x
+ay  = zeros(Float64, Ny, Nx)   # deflection y
+detJ = zeros(Float64, Ny, Nx)  # lensing jacobian
+
+# ---------------------------------------------
+# Binning for surface density estimation
+# ---------------------------------------------
+# histogram grid
+Nbinsx, Nbinsy = 550, 550
+xedges = range(xmin, xmax; length=Nbinsx+1)
+yedges = range(ymin, ymax; length=Nbinsy+1)
+
+# bin centers for plotting axes
+xcent = @. 0.5*(xedges[1:end-1] + xedges[2:end])
+ycent = @. 0.5*(yedges[1:end-1] + yedges[2:end])
+
+
+# ---------------------------------------------
+# lensing functions at a point (wrapper for your lens functions)
+# ---------------------------------------------
+potential_at(lens, θ) = potential(lens, θ)                 
+deflection_at(lens, θ) = deflection(lens, θ)               # returns SVector(αx, αy)
+jacobian_at(lens, θ) = deflection_jacobian(lens, θ)        # returns 2x2 (SMatrix ok)
+
+# ---------------------------------------------
+# Evaluate on grid
+# ---------------------------------------------
+for (j, y) in enumerate(ys), (i, x) in enumerate(xs)
+    θ = @SVector [x, y]
+
+    J = jacobian_at(lens, θ)
+    detJ[i, j] = det(Matrix(J))   
+end
+
+
+
+# -----------------------------
+# Plot: caustic curves (recalculate critical curves (det(J)=0) 
+# -----------------------------
+# You can add contour lines to p4 to show where det(J)=0, which are the critical curves. For example:
+
+levs = [0.0]
+cs = contours(xs, ys, detJ, levs)
+
+critical_polylines = Vector{Vector{SVector{2,Float64}}}()
+caustic_polylines = Vector{Vector{SVector{2,Float64}}}()
+
+for lvl in levels(cs)
+    for line in lines(lvl)
+        xline, yline = coordinates(line)   # <- two vectors
+        poly = [@SVector [xline[k], yline[k]] for k in eachindex(xline)]
+        push!(critical_polylines, poly)
+    end
+end
+
+for poly in critical_polylines
+    mapped = [θ - deflection_at(lens, θ) for θ in poly]
+    push!(caustic_polylines, mapped)
+end
+
+# --------------------------------------------
+# Image positions for a specific source position β
+# ---------------------------------------------
+# --- helper: real cube root ---
+cbrt_real(x::Real) = sign(x) * abs(x)^(1/3)
+
+# Solve y^3 + p y + q = 0 for real roots
+function depressed_cubic_real_roots(p::Float64, q::Float64)
+    Δ = (q/2)^2 + (p/3)^3
+
+    if Δ > 0
+        # one real root
+        u = cbrt_real(-q/2 + sqrt(Δ))
+        v = cbrt_real(-q/2 - sqrt(Δ))
+        return [u + v]
+    elseif abs(Δ) ≤ 1e-14
+        # multiple root case (on/near caustic)
+        u = cbrt_real(-q/2)
+        return [2u, -u]  # (double root at -u)
+    else
+        # three real roots
+        r = 2 * sqrt(-p/3)
+        φ = acos( (3q/(2p)) * sqrt(-3/p) )
+        return [
+            r * cos(φ/3),
+            r * cos((φ + 2π)/3),
+            r * cos((φ + 4π)/3)
+        ]
+    end
+end
+
+function image_positions(lens, β::SVector{2,Float64})
+    d = lens.d
+    e = lens.e
+    βx, βy = β[1], β[2]
+
+    a = e - 0.5*d^2
+    b = d * βx
+    c = -βy
+
+    p = b / a
+    q = c / a
+
+    ys = depressed_cubic_real_roots(p, q)
+
+    # recover x from βx = x + (d/2) y^2
+    imgs = SVector{2,Float64}[]
+    for y in ys
+        x = βx - 0.5*d*y^2
+        push!(imgs, @SVector [x, y])
+    end
+    return imgs
+end
+
+# ---------------------------------------------
+# Ray-shooting approach for extended sources
+# ---------------------------------------------
+
+# lens equation mapping θ -> β
+β_from_θ(lens, θ::SVector{2,Float64}) = θ - deflection_at(lens, θ)
+
+"""
+Return image-plane intensity map I(θ) on a grid (xcent × ycent).
+I_img(θ) = I_src(β(θ)).
+"""
+function ray_shoot_intensity_map(lens, src, xcent, ycent)
+    Nx = length(xcent)
+    Ny = length(ycent)
+    I = Matrix{Float64}(undef, Ny, Nx)   # (y,x) for heatmap
+
+    @inbounds for j in 1:Ny
+        y = ycent[j]
+        for i in 1:Nx
+            x = xcent[i]
+            θ = SVector{2,Float64}(x, y)
+            β = β_from_θ(lens, θ)
+            I[j, i] = float(intensity(src, β))
+        end
+    end
+    return I
+end
+
+
+Iθ = ray_shoot_intensity_map(lens, src, xcent, ycent)
+
+# For plotting (dynamic range): log stretch
+Iplot = log10.(Iθ .+ 1e-12)
+
+p_ray = heatmap(xcent, ycent, Iplot;
+    aspect_ratio=:equal,
+    xlabel="θx", ylabel="θy",
+    title="Lens plane: lensed Sérsic via ray-shooting",
+    colorbar_title="log10(I+ε)",
+    legend=false
+)
+
+# Overlay critical curve
+for poly in critical_polylines
+    plot!(p_ray, first.(poly), last.(poly); lw=2, linecolor=:white)
+end
+
+savefig(p_ray, "generic_cusp_sersic_rayshooting.pdf")
+println("Saved: generic_cusp_sersic_rayshooting.pdf")
+
+# ---------------------------------------------
+# Animation of source crossing caustic (ray-shooting)
+# ---------------------------------------------
+
+function with_center(src::SersicSource, β0::SVector{2,Float64})
+    return SersicSource(
+        I0=src.I0, 
+        Re=src.Re,
+        n=src.n, 
+        q=src.q,
+        ϕ=src.ϕ,
+        β0 = β0,
+        normalize=src.normalize
+    )
+end
+
+function animate_rayshooting_sersic(lens, src;
+        outname::String = "sersic_rayshooting.gif",
+        βstart::SVector{2,Float64} = SVector{2,Float64}(-1.6, 0.2),
+        v::SVector{2,Float64}      = SVector{2,Float64}( 1.0, 0.0),
+        tmin::Float64 = -0.6,
+        tmax::Float64 =  2.0,
+        nframes::Int  = 80,
+        fps::Int      = 20,
+        logeps::Float64 = 1e-12
+    )
+
+    ts   = range(tmin, tmax; length=nframes)
+    path = line_path(βstart, v, ts)
+
+    anim = @animate for β0 in path
+        src_t = with_center(src, β0)
+        Iθ = ray_shoot_intensity_map(lens, src_t, xcent, ycent)
+        Iplot = log10.(Iθ .+ logeps)
+
+        p_lens = heatmap(xcent, ycent, Iplot;
+            aspect_ratio=:equal,
+            xlabel="θx", ylabel="θy",
+            title="Ray-shooted lensed Sérsic (β0 = ($(round(β0[1],digits=3)), $(round(β0[2],digits=3))))",
+            colorbar=false,
+            legend=false
+        )
+
+        # critical curve overlay
+        for poly in critical_polylines
+            plot!(p_lens, first.(poly), last.(poly); lw=2, linecolor=:white)
+        end
+
+        # ---- Right panel: source plane caustic + motion ----
+        p_src = plot(; aspect_ratio=:equal,
+            xlabel="βx", ylabel="βy",
+            title="Source plane",
+            legend=false
+        )
+        for poly in caustic_polylines
+            plot!(p_src, first.(poly), last.(poly); lw=2)
+        end
+
+        # current source center
+        scatter!(p_src, [β0[1]], [β0[2]]; markersize=6)
+
+        plot(p_lens, p_src; layout=(1,2), size=(1200, 600))
+    end
+
+    gif(anim, outname; fps=fps)
+    println("Saved: $outname")
+end
+
+
+animate_rayshooting_sersic(lens, src; outname="cross_horizontal_rs.gif",
+    βstart = SVector{2,Float64}(-1.6, 0.0),
+    v      = SVector{2,Float64}(1.0, 0.0))
+
+
+# animate_rayshooting_sersic(lens, src; outname="cross_vertical_rs.gif",
+#     βstart = SVector{2,Float64}(-1.0, -1.0),
+#     v      = SVector{2,Float64}(0.0, 1.0))
