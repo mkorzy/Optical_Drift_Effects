@@ -350,11 +350,6 @@ end
 #     src_xlim=(-4.0, 4.0), src_ylim=(-4.0, 4.0)
 # )
 
-
-
-
-
-
 function animate_halfplane_crossing_offset_with_diff(lens;
         outname::String="halfplane_with_diff.gif",
         βc::SVector{2,Float64}=SVector{2,Float64}(0.0, 0.0),

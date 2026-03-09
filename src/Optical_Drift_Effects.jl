@@ -24,7 +24,8 @@ export generic_cusp, potential, deflection, deflection_jacobian
 # 3) Source models
 # -------------------------
 include("Sources/Sersic.jl")
-export SersicSource, intensity, sersic_b
+include("Sources/halfPlane.jl")
+export SersicSource, HalfPlaneSource, intensity, sersic_b
 
 # -------------------------
 # 3) Public API exports
