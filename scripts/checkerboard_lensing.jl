@@ -14,7 +14,7 @@ lens = generic_cusp(1, 1)   # <-- change this line to your lens object / paramet
 # Source set-up
 # ------------------------------
 cell_size = 0.2
-src = CheckerboardSource(cell_size=cell_size, ϕ = π/2 , hue_gradient=true, x_range=(-2.0, 2.0))
+src = CheckerboardSource(cell_size=cell_size, ϕ = 0.0 , hue_gradient=true, x_range=(-2.0, 2.0))
 
 # -----------------------------
 # Grid settings
@@ -146,7 +146,7 @@ p_lens = heatmap(xs_hi, ys_hi, I_hi;
 )
 
 for poly in critical_polylines
-    plot!(p_lens, first.(poly), last.(poly); lw=2, linecolor=:blue)
+    plot!(p_lens, first.(poly), last.(poly); lw=2, linecolor=:cyan)
 end
 
 xs_src = range(xmin, xmax; length=Nx_pix)
@@ -165,10 +165,11 @@ p_src = heatmap(xs_src, ys_src, I_src_map;
 )
 
 for poly in caustic_polylines
-    plot!(p_src, first.(poly), last.(poly); lw=2, linecolor=:blue)
+    plot!(p_src, first.(poly), last.(poly); lw=2, linecolor=:cyan)
 end
 
-p_overlay = plot(p_lens, p_src; layout=(1,2), size=(1200, 600))
+p_overlay = plot(p_lens, p_src; layout=(1,2), size=(1200, 600), left_margin=12Plots.mm, right_margin=6Plots.mm,
+    top_margin=6Plots.mm,   bottom_margin=12Plots.mm)
 
-savefig(p_overlay, "checkerboard_verticalHue.png")
+savefig(p_overlay, "checkerboard_horizontalHue.png")
 println("Saved: checkerboard.png")

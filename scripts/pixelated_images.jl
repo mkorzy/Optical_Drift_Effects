@@ -32,9 +32,9 @@ src = HalfPlaneSource(1.0, 0.0, βstar, n, w)
 # Grid settings
 # -----------------------------
 
-os = 20           # oversampling factor (pixels per output pixel, per axis)
+os = 4           # oversampling factor (pixels per output pixel, per axis)
 
-Nx_pix, Ny_pix = 50, 50                 # desired output (pixelated) resolution
+Nx_pix, Ny_pix = 200, 200                 # desired output (pixelated) resolution
 Nx_hi,  Ny_hi  = os * Nx_pix, os * Ny_pix  # high-res ray grid
 
 xmin, xmax = -2.0, 2.0
@@ -345,9 +345,8 @@ end
 println("Plotted caustic curves in source plane.")
 
 add_halfplane_to_sourceplot!(p_src, βstar, n; L=5.0, α=0.25)
-scatter!(p_src, [βstar[1]], [βstar[2]]; markersize=5)
 
-p_overlay = plot(p_lens_hi, p_lens, p_obs, p_src; layout=(2,2), size=(1100, 1100),  left_margin=12Plots.mm, right_margin=6Plots.mm,
+p_overlay = plot(p_lens_hi, p_lens, p_obs, p_src; layout=(2,2), size=(1400, 1400),  left_margin=12Plots.mm, right_margin=6Plots.mm,
     top_margin=6Plots.mm,   bottom_margin=12Plots.mm)
 
 savefig(p_overlay, "halfplane_cusp.png")
