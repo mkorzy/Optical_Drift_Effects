@@ -50,60 +50,6 @@ jacobian_at(lens, θ) = deflection_jacobian(lens, θ)        # returns 2x2 (SMat
 critical_polylines = critical_curves(lens, xs_hi, ys_hi)
 caustic_polylines = caustic_curves(lens, critical_polylines)
 
-
-# --------------------------------------------
-# Image positions for a specific source position β
-# ---------------------------------------------
-# --- helper: real cube root ---
-cbrt_real(x::Real) = sign(x) * abs(x)^(1/3)
-
-# Solve y^3 + p y + q = 0 for real roots
-function depressed_cubic_real_roots(p::Float64, q::Float64)
-    Δ = (q/2)^2 + (p/3)^3
-
-    if Δ > 0
-        # one real root
-        u = cbrt_real(-q/2 + sqrt(Δ))
-        v = cbrt_real(-q/2 - sqrt(Δ))
-        return [u + v]
-    elseif abs(Δ) ≤ 1e-14
-        # multiple root case (on/near caustic)
-        u = cbrt_real(-q/2)
-        return [2u, -u]  # (double root at -u)
-    else
-        # three real roots
-        r = 2 * sqrt(-p/3)
-        φ = acos( (3q/(2p)) * sqrt(-3/p) )
-        return [
-            r * cos(φ/3),
-            r * cos((φ + 2π)/3),
-            r * cos((φ + 4π)/3)
-        ]
-    end
-end
-
-function image_positions(lens, β::SVector{2,Float64})
-    d, e = lens.d, lens.e
-    βx, βy = β[1], β[2]
-
-    a = e - 0.5*d^2
-    b = d * βx
-    c = -βy
-
-    p = b / a
-    q = c / a
-
-    ys_roots = depressed_cubic_real_roots(p, q)
-
-    # recover x from βx = x + (d/2) y^2
-    imgs = SVector{2,Float64}[]
-    for y in ys_roots
-        x = βx - 0.5*d*y^2
-        push!(imgs, @SVector [x, y])
-    end
-    return imgs
-end
-
 # ---------------------------------------------
 # Ray-shooting approach for extended sources
 # ---------------------------------------------

@@ -12,9 +12,9 @@ using Distributions # for Poisson noise
 # Lens set-up
 # -----------------------------
 # d=1, e=1 
-lens = generic_cusp(1, 1)   # <-- change this line to your lens object / parameters 
+# lens = generic_cusp(1, 1)   # <-- change this line to your lens object / parameters 
 
-# lens = generic_fold(1)   
+lens = generic_fold(1)   
 
 # ------------------------------
 # Source set-up
@@ -75,10 +75,16 @@ caustic_polylines = caustic_curves(lens, critical_polylines)
 # --------------------------------------------
 # Image positions for a specific source position β
 # ---------------------------------------------
+# THIS IS NOT USED IN THE RAY-SHOOTING APPROACH BELOW WHICH IS GNERAL FOR EXTENDED SOURCES.
+# This method for finding image positions is specific to cusp lens models and could be useful for point source or to check ray-tracing results.
+# As well as this, it could be used for tracking specific points in the source plane as they move across the caustic, and defining the magnification for a point source.
+# A different method would be needed for a general lens model or a fold caustic, but the ray-shooting approach below is general and works for any lens and extended source.
+
+
 # --- helper: real cube root ---
 cbrt_real(x::Real) = sign(x) * abs(x)^(1/3)
 
-# Solve y^3 + p y + q = 0 for real roots
+   # Solve y^3 + p y + q = 0 for real roots
 function depressed_cubic_real_roots(p::Float64, q::Float64)
     Δ = (q/2)^2 + (p/3)^3
 
@@ -349,6 +355,6 @@ add_halfplane_to_sourceplot!(p_src, βstar, n; L=5.0, α=0.25)
 p_overlay = plot(p_lens_hi, p_lens, p_obs, p_src; layout=(2,2), size=(1400, 1400),  left_margin=12Plots.mm, right_margin=6Plots.mm,
     top_margin=6Plots.mm,   bottom_margin=12Plots.mm)
 
-savefig(p_overlay, "halfplane_cusp.png")
-println("Saved: halfplane_cusp.png")
+savefig(p_overlay, "halfplane_fold.png")
+println("Saved: halfplane_fold.png")
 
