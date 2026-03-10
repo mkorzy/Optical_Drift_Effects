@@ -14,7 +14,7 @@ lens = generic_cusp(1, 1)   # <-- change this line to your lens object / paramet
 # Source set-up
 # ------------------------------
 cell_size = 0.2
-src = CheckerboardSource(cell_size=cell_size, β0=(0.0, 0.0), window_size=2.0)
+src = CheckerboardSource(cell_size=cell_size, ϕ = π/2 , hue_gradient=true, x_range=(-2.0, 2.0))
 
 # -----------------------------
 # Grid settings
@@ -36,8 +36,6 @@ ys_hi = range(ymin, ymax; length=Ny_hi)
 xs_pix = range(xmin, xmax; length=Nx_pix)
 ys_pix = range(ymin, ymax; length=Ny_pix)
 
-
-detJ = zeros(Float64, Ny_hi, Nx_hi)  # lensing jacobian
 
 # ---------------------------------------------
 # lensing functions at a point (wrapper for your lens functions)
@@ -138,11 +136,13 @@ end
 #---generate ray-shooting intensity map and plot with caustics/critical curves ---
 
 I_hi  = ray_shoot_intensity_map(lens, src, xs_hi, ys_hi)
-p_lens = heatmap(xs_hi, ys_hi, log10.(I_hi .+ 1e-12);  # log for display
+p_lens = heatmap(xs_hi, ys_hi, I_hi;  
     aspect_ratio=:equal,
     xlabel="θx", ylabel="θy",
     title="Lens plane",
-    colorbar=false, legend=false
+    colorbar=false, legend=false,
+    color=:RdBu, clims=(0, 1),
+    background_color_inside=:black
 )
 
 for poly in critical_polylines
@@ -159,7 +159,9 @@ p_src = heatmap(xs_src, ys_src, I_src_map;
     aspect_ratio=:equal,
     xlabel="βx", ylabel="βy",
     title="Source plane",
-    colorbar=false, legend=false
+    colorbar=false, legend=false,
+    color=:RdBu, clims=(0, 1),
+    background_color_inside=:black
 )
 
 for poly in caustic_polylines
@@ -168,5 +170,5 @@ end
 
 p_overlay = plot(p_lens, p_src; layout=(1,2), size=(1200, 600))
 
-savefig(p_overlay, "checkerboard.png")
+savefig(p_overlay, "checkerboard_verticalHue.png")
 println("Saved: checkerboard.png")

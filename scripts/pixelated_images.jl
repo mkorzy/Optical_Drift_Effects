@@ -5,6 +5,8 @@ using LinearAlgebra
 using Plots
 using Contour  
 using Random
+using DSP          # for conv (PSF convolution)
+using Distributions # for Poisson noise
 
 # -----------------------------
 # Lens set-up
@@ -30,9 +32,9 @@ src = HalfPlaneSource(1.0, 0.0, βstar, n, w)
 # Grid settings
 # -----------------------------
 
-os = 5           # oversampling factor (pixels per output pixel, per axis)
+os = 20           # oversampling factor (pixels per output pixel, per axis)
 
-Nx_pix, Ny_pix = 200, 200                 # desired output (pixelated) resolution
+Nx_pix, Ny_pix = 50, 50                 # desired output (pixelated) resolution
 Nx_hi,  Ny_hi  = os * Nx_pix, os * Ny_pix  # high-res ray grid
 
 xmin, xmax = -2.0, 2.0
@@ -46,48 +48,29 @@ ys_hi = range(ymin, ymax; length=Ny_hi)
 xs_pix = range(xmin, xmax; length=Nx_pix)
 ys_pix = range(ymin, ymax; length=Ny_pix)
 
+# ---------------------------------------------
+# Observation parameters  <-- adjust these
+# ---------------------------------------------
+psf_σ_θ    = 0.04     # PSF Gaussian σ in θ-units (same units as xmin/xmax)
+sky_level  = 0.005    # uniform sky background in flux units
+flux_scale = 2e4     # scale factor: converts normalised intensity → photon counts
+σ_read     = 5.0     # read noise standard deviation in photon counts
+obs_seed   = 42      # RNG seed for reproducibility
 
-detJ = zeros(Float64, Ny_hi, Nx_hi)  # lensing jacobian
+pixel_size = (xmax - xmin) / (Nx_pix - 1)   # angular size of one output pixel
+
 
 # ---------------------------------------------
 # lensing functions at a point (wrapper for your lens functions)
 # ---------------------------------------------             
 deflection_at(lens, θ) = deflection(lens, θ)               # returns SVector(αx, αy)
-jacobian_at(lens, θ) = deflection_jacobian(lens, θ)        # returns 2x2 (SMatrix ok)
+
 
 # ---------------------------------------------
-# Evaluate on grid
+#  Critical curves: find det(J)=0 contours in image plane
 # ---------------------------------------------
-for (j, y) in enumerate(ys_hi), (i, x) in enumerate(xs_hi)
-    θ = @SVector [x, y]
-
-    J = jacobian_at(lens, θ)
-    detJ[i, j] = det(Matrix(J))   
-end
-
-# -----------------------------
-# Plot: caustic curves (recalculate critical curves (det(J)=0) 
-# -----------------------------
-# You can add contour lines to p4 to show where det(J)=0, which are the critical curves. For example:
-
-levs = [0.0]
-cs = contours(xs_hi, ys_hi, detJ, levs)
-
-critical_polylines = Vector{Vector{SVector{2,Float64}}}()
-caustic_polylines = Vector{Vector{SVector{2,Float64}}}()
-
-for lvl in levels(cs)
-    for line in lines(lvl)
-        xline, yline = coordinates(line)   # <- two vectors
-        poly = [@SVector [xline[k], yline[k]] for k in eachindex(xline)]
-        push!(critical_polylines, poly)
-    end
-end
-
-for poly in critical_polylines
-    mapped = [θ - deflection_at(lens, θ) for θ in poly]
-    push!(caustic_polylines, mapped)
-end
+critical_polylines = critical_curves(lens, xs_hi, ys_hi)
+caustic_polylines = caustic_curves(lens, critical_polylines)
 
 # --------------------------------------------
 # Image positions for a specific source position β
@@ -220,15 +203,106 @@ function block_mean(A::AbstractMatrix{<:Real}, os::Int)
     return B
 end
 
+# ---------------------------------------------
+# Observational effects
+# ---------------------------------------------
+"""
+    make_gaussian_psf(σ_θ, pixel_size; truncate=4) -> Matrix{Float64}
+
+Build a normalised 2-D Gaussian PSF kernel.
+  σ_θ        : standard deviation in the same angular units as the θ grid
+  pixel_size : angular size of one output pixel (xmax-xmin)/(Nx_pix-1)
+  truncate   : kernel half-width in units of σ (default 4σ)
+The kernel is normalised to sum to 1 so total flux is conserved.
+"""
+function make_gaussian_psf(σ_θ::Float64, pixel_size::Float64; truncate::Int=4)
+    σ_pix = σ_θ / pixel_size                          # σ in pixel units
+    half  = ceil(Int, truncate * σ_pix)
+    sz    = 2*half + 1
+    K     = Matrix{Float64}(undef, sz, sz)
+    for j in 1:sz, i in 1:sz
+        dx = i - half - 1
+        dy = j - half - 1
+        K[j, i] = exp(-0.5*(dx^2 + dy^2) / σ_pix^2)
+    end
+    return K ./ sum(K)
+end
+
+"""
+    apply_psf(I, psf_kernel) -> Matrix{Float64}
+
+Convolve intensity map I with psf_kernel using linear (zero-padded) convolution,
+then crop back to the original size so the output is centred correctly.
+"""
+function apply_psf(I::Matrix{Float64}, K::Matrix{Float64})
+    Ny, Nx     = size(I)
+    Ky, Kx     = size(K)
+    half_y     = Ky ÷ 2
+    half_x     = Kx ÷ 2
+    C          = conv(I, K)                            # DSP.conv: full convolution
+    # crop to original size (centred)
+    return C[half_y+1 : half_y+Ny, half_x+1 : half_x+Nx]
+end
+
+
+"""
+    add_sky_background(I, sky_level) -> Matrix{Float64}
+
+Add a uniform sky background (in the same flux units as I).
+"""
+add_sky_background(I::Matrix{Float64}, sky::Float64) = I .+ sky
+
+"""
+    add_poisson_noise(I, rng) -> Matrix{Float64}
+
+Add Poisson shot noise. I is treated as a photon count map; each pixel is
+drawn from Poisson(λ = I[j,i]).  Negative values (from background subtraction)
+are clamped to zero before sampling.
+"""
+function add_poisson_noise(I::Matrix{Float64}, rng::AbstractRNG)
+    out = similar(I)
+    for k in eachindex(I)
+        λ = max(I[k], 0.0)
+        out[k] = Float64(rand(rng, Poisson(λ)))
+    end
+    return out
+end
+
+"""
+    add_read_noise(I, σ_read, rng) -> Matrix{Float64}
+
+Add Gaussian read-out noise with standard deviation σ_read (in flux units).
+"""
+function add_read_noise(I::Matrix{Float64}, σ_read::Float64, rng::AbstractRNG)
+    return I .+ σ_read .* randn(rng, size(I))
+end
+
 
 #---generate ray-shooting intensity map and plot with caustics/critical curves ---
 
 I_hi  = ray_shoot_intensity_map(lens, src, xs_hi, ys_hi)
 I_pix = block_mean(I_hi, os)
+
+# --- build observed image pipeline ---
+psf_kernel = make_gaussian_psf(psf_σ_θ, pixel_size)
+println("PSF kernel size: $(size(psf_kernel)), σ = $(psf_σ_θ) θ-units = $(psf_σ_θ/pixel_size) pixels")
+
+I_psf  = apply_psf(I_pix, psf_kernel)                         # 1. PSF convolution
+I_sky  = add_sky_background(I_psf, sky_level)                 # 2. sky background
+I_cnt  = I_sky .* flux_scale                                   # 3. scale to counts
+
+rng    = MersenneTwister(obs_seed)
+I_shot = add_poisson_noise(I_cnt,  rng)                       # 4. Poisson shot noise
+I_obs  = add_read_noise(I_shot, σ_read, rng)                  # 5. Gaussian read noise
+
+# log-stretch for display (guard against ≤0 after noise)
+log_stretch(A) = log10.(max.(A, 1.0))
+
 Iplot = log10.(I_pix .+ 1e-12)
 
 p_lens_hi = heatmap(xs_hi, ys_hi, log10.(I_hi .+ 1e-12);  # log for display
     aspect_ratio=:equal,
+    xlims=(xmin, xmax), ylims=(ymin, ymax),
     xlabel="θx", ylabel="θy",
     title="Lens plane: high-res",
     colorbar=false, legend=false
@@ -236,6 +310,7 @@ p_lens_hi = heatmap(xs_hi, ys_hi, log10.(I_hi .+ 1e-12);  # log for display
 
 p_lens = heatmap(xs_pix, ys_pix, Iplot;
     aspect_ratio=:equal,
+    xlims=(xmin, xmax), ylims=(ymin, ymax),
     xlabel="θx", ylabel="θy",
     title="Lens plane: pixelated",
     colorbar=false, legend=false
@@ -246,7 +321,19 @@ for poly in critical_polylines
 end
 println("Plotted lens plane intensity map.")
 
+p_obs = heatmap(xs_pix, ys_pix, log_stretch(I_obs);
+    aspect_ratio=:equal,
+    xlims=(xmin, xmax), ylims=(ymin, ymax),
+    xlabel="θx", ylabel="θy",
+    title="Observed (PSF + noise)",
+    colorbar=false, legend=false
+)
+for poly in critical_polylines
+    plot!(p_obs, first.(poly), last.(poly); lw=2, linecolor=:white)
+end
+
 p_src = plot(; aspect_ratio=:equal,
+    xlims=(xmin, xmax), ylims=(ymin, ymax),
     xlabel="βx", ylabel="βy",
     title="Source plane",
     legend=false
@@ -260,7 +347,8 @@ println("Plotted caustic curves in source plane.")
 add_halfplane_to_sourceplot!(p_src, βstar, n; L=5.0, α=0.25)
 scatter!(p_src, [βstar[1]], [βstar[2]]; markersize=5)
 
-p_overlay = plot(p_lens_hi, p_lens, p_src; layout=(1,3), size=(1200, 600))
+p_overlay = plot(p_lens_hi, p_lens, p_obs, p_src; layout=(2,2), size=(1100, 1100),  left_margin=12Plots.mm, right_margin=6Plots.mm,
+    top_margin=6Plots.mm,   bottom_margin=12Plots.mm)
 
 savefig(p_overlay, "halfplane_cusp.png")
 println("Saved: halfplane_cusp.png")
