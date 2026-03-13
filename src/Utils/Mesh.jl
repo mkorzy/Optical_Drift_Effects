@@ -2,9 +2,6 @@
 
 # Mesh generation utilities for ray-shooting and intensity map calculations.
 
-
-
-
 """ 
     block_mean(A, os) -> Matrix{Float64}
 
