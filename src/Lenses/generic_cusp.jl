@@ -4,8 +4,6 @@ using LinearAlgebra
 using StaticArrays
 using ForwardDiff
 
-export generic_cusp, deflection, deflection_jacobian
-
 struct generic_cusp <: AbstractLensModel
     d::Int64
     e::Int64
